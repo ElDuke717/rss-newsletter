@@ -1,0 +1,90 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependency directories
+node_modules/
+bower_components/
+
+# Environment variables
+.env
+.env.*.local
+
+# Build output
+dist/
+build/
+public/
+
+# Cache directories
+.cache/
+tmp/
+temp/
+out/
+coverage/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# System files
+*.swp
+*.swo
+*.bak
+*.tmp
+*.orig
+
+# Test output
+*.pid
+*.seed
+*.log
+
+
+
+# IDE specific
+/.classpath
+/.project
+/.settings/
+*.iml
+*.ipr
+*.iws
+
+# MacOS Finder
+Icon?
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Linux trash
+.Trash-*
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Miscellaneous
+*.zip
+*.tar.gz
+*.7z
+*.tgz
+*.bak
+
+# Ignore local testing and development tools
+.env.local
+.env.development
+.env.production
+.env.test
+.local/
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/*.code-workspace
+*.env.local
