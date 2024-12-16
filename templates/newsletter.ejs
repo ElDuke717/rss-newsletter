@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      .article {
+        margin-bottom: 20px;
+      }
+      .article-title {
+        color: #2c5282;
+      }
+      .article-source {
+        color: #666;
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Your Daily Newsletter</h1>
+
+    <% articles.forEach(function(article) { %>
+    <div class="article">
+      <h2>
+        <a href="<%= article.url %>" class="article-title"
+          ><%= article.title %></a
+        >
+      </h2>
+      <div class="article-source">From: <%= article.feedId.name %></div>
+      <p><%= article.content?.substring(0, 150) %>...</p>
+    </div>
+    <% }); %>
+
+    <hr />
+    <p>To unsubscribe, <a href="[Unsubscribe_Link]">click here</a></p>
+  </body>
+</html>
