@@ -88,3 +88,4 @@ pnpm-lock.yaml
 .vscode/tasks.json
 .vscode/*.code-workspace
 *.env.local
+.vercel
