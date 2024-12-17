@@ -6,44 +6,57 @@ const feedService = require("../services/feedService");
 const aiService = require("../services/aiService.js");
 
 // GET all feeds
-router.get("/", async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const feeds = await Feed.find();
-    res.json(feeds);
+      const feeds = await Feed.find();
+      console.log(`Retrieved ${feeds.length} feeds`);
+      res.json(feeds);
   } catch (error) {
-    console.error("Error fetching feeds:", error);
-    res.status(500).json({ message: "Server error" });
+      console.error('Error fetching feeds:', error);
+      res.status(500).json({ message: 'Error fetching feeds', error: error.message });
   }
 });
 
-// POST new feed
+// POST new feed with enhanced error handling
 router.post('/', async (req, res) => {
   try {
       console.log('Received feed creation request:', req.body);
-      
-      if (!mongoose.connection.readyState) {
-          console.error('MongoDB not connected');
-          return res.status(500).json({ 
-              error: 'Database connection not available',
-              readyState: mongoose.connection.readyState
-          });
-      }
 
       const { name, url } = req.body;
 
-      // Validate input
+      // Input validation
       if (!name || !url) {
-          return res.status(400).json({ error: 'Name and URL are required' });
+          console.log('Missing required fields');
+          return res.status(400).json({ 
+              message: 'Missing required fields',
+              required: ['name', 'url'],
+              received: { name: !!name, url: !!url }
+          });
+      }
+
+      // Check for duplicate URL
+      const existingFeed = await Feed.findOne({ url });
+      if (existingFeed) {
+          console.log('Feed URL already exists');
+          return res.status(409).json({ 
+              message: 'Feed URL already exists',
+              existingFeed: {
+                  name: existingFeed.name,
+                  url: existingFeed.url
+              }
+          });
       }
 
       // Create new feed
       const feed = new Feed({
           name,
-          url
+          url,
+          lastFetched: null
       });
 
       const savedFeed = await feed.save();
       console.log('Feed saved successfully:', savedFeed);
+      
       res.status(201).json(savedFeed);
   } catch (error) {
       console.error('Feed creation error:', {
@@ -51,9 +64,19 @@ router.post('/', async (req, res) => {
           stack: error.stack,
           name: error.name
       });
+      
+      // Handle specific MongoDB errors
+      if (error.name === 'MongoServerError' && error.code === 11000) {
+          return res.status(409).json({ 
+              message: 'Duplicate feed URL',
+              error: error.message 
+          });
+      }
+      
       res.status(500).json({ 
-          error: 'Failed to create feed',
-          details: error.message
+          message: 'Error creating feed',
+          error: error.message,
+          details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
   }
 });
@@ -67,6 +90,20 @@ router.post("/fetch", async (req, res) => {
     res
       .status(500)
       .json({ message: "Error fetching feeds", error: error.message });
+  }
+});
+
+// DELETE feed
+router.delete('/:id', async (req, res) => {
+  try {
+      const feed = await Feed.findByIdAndDelete(req.params.id);
+      if (!feed) {
+          return res.status(404).json({ message: 'Feed not found' });
+      }
+      res.json({ message: 'Feed deleted successfully', feed });
+  } catch (error) {
+      console.error('Error deleting feed:', error);
+      res.status(500).json({ message: 'Error deleting feed', error: error.message });
   }
 });
 
