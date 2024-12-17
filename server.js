@@ -365,6 +365,34 @@ app.get("/api/system-status", async (req, res) => {
   }
 });
 
+app.get('/api/feed-status', async (req, res) => {
+  try {
+      const feeds = await Feed.find().lean();
+      const articles = await Article.find().lean();
+      
+      const status = {
+          feedCount: feeds.length,
+          feeds: feeds.map(f => ({
+              name: f.name,
+              url: f.url,
+              lastFetched: f.lastFetched
+          })),
+          articleCount: articles.length,
+          recentArticles: articles
+              .sort((a, b) => new Date(b.publishDate) - new Date(a.publishDate))
+              .slice(0, 5)
+              .map(a => ({
+                  title: a.title,
+                  publishDate: a.publishDate
+              }))
+      };
+      
+      res.json(status);
+  } catch (error) {
+      res.status(500).json({ error: error.message });
+  }
+});
+
 // Development server
 if (process.env.NODE_ENV !== "production") {
   const PORT = process.env.PORT || 4000;

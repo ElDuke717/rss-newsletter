@@ -170,16 +170,44 @@ router.post('/fetch', async (req, res) => {
     }
 });
 
-// Fetch all feeds
+// Add this route to feedRoutes.js
 router.post('/fetch-all', async (req, res) => {
-    try {
-        console.log('Fetching all feeds...');
-        await feedService.fetchAllFeeds();
-        res.json({ message: 'All feeds fetched successfully' });
-    } catch (error) {
-        console.error('Error fetching feeds:', error);
-        res.status(500).json({ message: 'Error fetching feeds', error: error.message });
-    }
+  try {
+      console.log('Starting feed fetch process...');
+      
+      const feeds = await Feed.find();
+      console.log(`Found ${feeds.length} feeds to process`);
+
+      if (feeds.length === 0) {
+          console.log('No feeds found in database');
+          return res.json({ message: 'No feeds to fetch' });
+      }
+
+      const feedService = require('../services/feedService');
+      console.log('Initializing feed service...');
+      
+      for (const feed of feeds) {
+          console.log(`Processing feed: ${feed.name} (${feed.url})`);
+          try {
+              await feedService.fetchFeed(feed);
+              console.log(`Successfully processed feed: ${feed.name}`);
+          } catch (feedError) {
+              console.error(`Error processing feed ${feed.name}:`, feedError);
+          }
+      }
+
+      console.log('Feed fetch process complete');
+      res.json({ 
+          message: 'Feeds processed',
+          feedCount: feeds.length
+      });
+  } catch (error) {
+      console.error('Feed fetch error:', error);
+      res.status(500).json({ 
+          error: 'Failed to fetch feeds',
+          details: error.message
+      });
+  }
 });
 
 // Get articles for a specific feed
