@@ -18,6 +18,100 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
+// Create cached connection variable
+let cachedDb = null;
+
+// Connection function
+async function connectToDatabase() {
+  if (cachedDb) {
+    console.log("Using cached database connection");
+    return cachedDb;
+  }
+
+  console.log("Creating new database connection");
+  try {
+    const db = await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      bufferCommands: false,
+      serverSelectionTimeoutMS: 5000,
+    });
+
+    cachedDb = db;
+    console.log("New database connection established");
+    return db;
+  } catch (error) {
+    console.error("MongoDB connection error:", {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+    });
+    throw error;
+  }
+}
+
+// Connect to MongoDB at startup
+connectToDatabase()
+  .then(() => {
+    console.log("Initial database connection attempted");
+  })
+  .catch((err) => {
+    console.error("Initial connection error:", err);
+  });
+
+// Add connection status endpoint
+app.get("/api/connection-test", async (req, res) => {
+  try {
+    await connectToDatabase();
+    const connectionState = mongoose.connection.readyState;
+    const stateMap = {
+      0: "disconnected",
+      1: "connected",
+      2: "connecting",
+      3: "disconnecting",
+    };
+
+    res.json({
+      status: "success",
+      connectionState: stateMap[connectionState],
+      numericState: connectionState,
+      mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
+      databaseName: mongoose.connection.name || "not connected",
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+// System status endpoint
+app.get("/api/system-status", async (req, res) => {
+  try {
+    const status = {
+      mongoConnected: mongoose.connection.readyState === 1,
+      mongoState: mongoose.connection.readyState,
+      environment: process.env.NODE_ENV,
+      hasOpenAI: !!process.env.OPENAI_API_KEY,
+      hasMongoDB: !!process.env.MONGODB_URI,
+    };
+
+    if (status.mongoConnected) {
+      const testDoc = await Feed.findOne().select("_id");
+      status.mongoQueryTest = !!testDoc;
+    }
+
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({
+      error: "System status check failed",
+      details: error.message,
+    });
+  }
+});
+
 // Test route for configuration
 app.get("/test-config", (req, res) => {
   res.json({
@@ -231,19 +325,33 @@ app.get("/api/diagnostic", async (req, res) => {
   }
 });
 
-// Connect to MongoDB and start server
-mongoose
-  .connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 5000
-  })
-  .then(() => console.log("MongoDB connected successfully"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+app.get("/api/system-status", async (req, res) => {
+  try {
+    const status = {
+      mongoConnected: mongoose.connection.readyState === 1,
+      mongoState: mongoose.connection.readyState,
+      environment: process.env.NODE_ENV,
+      hasOpenAI: !!process.env.OPENAI_API_KEY,
+      hasMongoDB: !!process.env.MONGODB_URI,
+    };
 
+    // Test MongoDB connection
+    if (status.mongoConnected) {
+      const testDoc = await Feed.findOne().select("_id");
+      status.mongoQueryTest = !!testDoc;
+    }
 
- // Remove the app.listen call for Vercel
-if (process.env.NODE_ENV !== 'production') {
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({
+      error: "System status check failed",
+      details: error.message,
+    });
+  }
+});
+
+// Development server
+if (process.env.NODE_ENV !== "production") {
   const PORT = process.env.PORT || 4000;
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
@@ -251,4 +359,4 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Export the Express API
-module.exports = app; 
+module.exports = app;

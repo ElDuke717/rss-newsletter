@@ -17,28 +17,44 @@ router.get("/", async (req, res) => {
 });
 
 // POST new feed
-router.post("/", async (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    console.log("Received feed creation request:", req.body); // Debug log
-    const { name, url } = req.body;
+      console.log('Received feed creation request:', req.body);
+      
+      if (!mongoose.connection.readyState) {
+          console.error('MongoDB not connected');
+          return res.status(500).json({ 
+              error: 'Database connection not available',
+              readyState: mongoose.connection.readyState
+          });
+      }
 
-    // Validate input
-    if (!name || !url) {
-      return res.status(400).json({ message: "Name and URL are required" });
-    }
+      const { name, url } = req.body;
 
-    // Create new feed
-    const feed = new Feed({
-      name,
-      url,
-    });
+      // Validate input
+      if (!name || !url) {
+          return res.status(400).json({ error: 'Name and URL are required' });
+      }
 
-    const savedFeed = await feed.save();
-    console.log("Feed saved:", savedFeed); // Debug log
-    res.status(201).json(savedFeed);
+      // Create new feed
+      const feed = new Feed({
+          name,
+          url
+      });
+
+      const savedFeed = await feed.save();
+      console.log('Feed saved successfully:', savedFeed);
+      res.status(201).json(savedFeed);
   } catch (error) {
-    console.error("Error creating feed:", error);
-    res.status(500).json({ message: "Server error" });
+      console.error('Feed creation error:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+      });
+      res.status(500).json({ 
+          error: 'Failed to create feed',
+          details: error.message
+      });
   }
 });
 
