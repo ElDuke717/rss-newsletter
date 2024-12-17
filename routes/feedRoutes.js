@@ -5,6 +5,16 @@ const Article = require("../models/Article"); // Add this line
 const feedService = require("../services/feedService");
 const aiService = require("../services/aiService.js");
 
+// Wrap database operations
+const withDB = async (callback) => {
+  try {
+      return await callback();
+  } catch (error) {
+      console.error("Database operation error:", error);
+      throw error;
+  }
+};
+
 // GET all feeds
 router.get('/', async (req, res) => {
   try {

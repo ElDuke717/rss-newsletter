@@ -21,104 +21,84 @@ app.use(express.static("public"));
 // Create cached connection variable
 let cachedDb = null;
 
-// Connection function
-async function connectToDatabase() {
-  if (cachedDb) {
-    console.log("Using cached database connection");
-    return cachedDb;
-  }
-
-  console.log("Creating new database connection");
-  try {
-    const db = await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      bufferCommands: false,
-      serverSelectionTimeoutMS: 5000,
-    });
-
-    cachedDb = db;
-    console.log("New database connection established");
-    return db;
-  } catch (error) {
-    console.error("MongoDB connection error:", {
-      message: error.message,
-      code: error.code,
-      name: error.name,
-    });
-    throw error;
-  }
-}
-
-// Connect to MongoDB at startup
-connectToDatabase()
-  .then(() => {
-    console.log("Initial database connection attempted");
-  })
-  .catch((err) => {
-    console.error("Initial connection error:", err);
-  });
+// Connection wrapper function
+const withDB = async (callback) => {
+    try {
+        if (!cachedDb) {
+            cachedDb = await mongoose.connect(process.env.MONGODB_URI, {
+                useNewUrlParser: true,
+                useUnifiedTopology: true,
+                bufferCommands: true, // Changed from false to true
+                serverSelectionTimeoutMS: 5000,
+            });
+            console.log("New database connection established");
+        }
+        return await callback();
+    } catch (error) {
+        console.error("Database operation error:", error);
+        throw error;
+    }
+};
 
 // Add connection status endpoint
 app.get("/api/connection-test", async (req, res) => {
-  try {
-    await connectToDatabase();
-    const connectionState = mongoose.connection.readyState;
-    const stateMap = {
-      0: "disconnected",
-      1: "connected",
-      2: "connecting",
-      3: "disconnecting",
-    };
+    try {
+        await withDB(async () => {
+            const connectionState = mongoose.connection.readyState;
+            const stateMap = {
+                0: "disconnected",
+                1: "connected",
+                2: "connecting",
+                3: "disconnecting",
+            };
 
-    res.json({
-      status: "success",
-      connectionState: stateMap[connectionState],
-      numericState: connectionState,
-      mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
-      databaseName: mongoose.connection.name || "not connected",
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "error",
-      error: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
-    });
-  }
+            return {
+                status: "success",
+                connectionState: stateMap[connectionState],
+                numericState: connectionState,
+                mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
+                databaseName: mongoose.connection.name || "not connected",
+            };
+        });
+        
+        res.json(await withDB(() => ({ message: "Connection test successful" })));
+    } catch (error) {
+        res.status(500).json({
+            status: "error",
+            error: error.message,
+            stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+        });
+    }
 });
 
 // System status endpoint
 app.get("/api/system-status", async (req, res) => {
   try {
-    const status = {
-      mongoConnected: mongoose.connection.readyState === 1,
-      mongoState: mongoose.connection.readyState,
-      environment: process.env.NODE_ENV,
-      hasOpenAI: !!process.env.OPENAI_API_KEY,
-      hasMongoDB: !!process.env.MONGODB_URI,
-    };
-
-    if (status.mongoConnected) {
-      const testDoc = await Feed.findOne().select("_id");
-      status.mongoQueryTest = !!testDoc;
-    }
-
-    res.json(status);
+      const status = await withDB(async () => ({
+          mongoConnected: mongoose.connection.readyState === 1,
+          mongoState: mongoose.connection.readyState,
+          environment: process.env.NODE_ENV,
+          hasOpenAI: !!process.env.OPENAI_API_KEY,
+          hasMongoDB: !!process.env.MONGODB_URI,
+          mongoQueryTest: await Feed.findOne().select("_id") ? true : false
+      }));
+      
+      res.json(status);
   } catch (error) {
-    res.status(500).json({
-      error: "System status check failed",
-      details: error.message,
-    });
+      res.status(500).json({
+          error: "System status check failed",
+          details: error.message
+      });
   }
 });
 
 // Test route for configuration
 app.get("/test-config", (req, res) => {
   res.json({
-    port: process.env.PORT,
-    hasOpenAI: !!process.env.OPENAI_API_KEY,
-    hasMongoDB: !!process.env.MONGODB_URI,
-    openAIKeyLength: process.env.OPENAI_API_KEY?.length,
+      port: process.env.PORT,
+      hasOpenAI: !!process.env.OPENAI_API_KEY,
+      hasMongoDB: !!process.env.MONGODB_URI,
+      openAIKeyLength: process.env.OPENAI_API_KEY?.length,
   });
 });
 
@@ -129,45 +109,74 @@ app.use("/api/subscribers", subscriberRoutes);
 // Test AI route
 app.post("/test-ai", async (req, res) => {
   try {
-    const articles = await Article.find()
-      .sort({ publishDate: -1 })
-      .limit(5)
-      .populate("feedId");
+      const articles = await withDB(async () => {
+          return Article.find()
+              .sort({ publishDate: -1 })
+              .limit(5)
+              .populate("feedId");
+      });
 
-    const content = await aiService.generateNewsletterContent(articles);
-    res.json({ content });
+      const content = await aiService.generateNewsletterContent(articles);
+      res.json({ content });
   } catch (error) {
-    console.error("AI test error:", error);
-    res.status(500).json({ error: error.message });
+      console.error("AI test error:", error);
+      res.status(500).json({ error: error.message });
   }
 });
 
-// Test route
-app.get("/test", (req, res) => {
-  res.json({ message: "Server is working" });
+// Fetch articles route
+app.post("/api/fetch-articles", async (req, res) => {
+  try {
+      const result = await withDB(async () => {
+          const feeds = await Feed.find();
+          console.log(`Found ${feeds.length} feeds to fetch`);
+
+          const feedService = require('./services/feedService');
+          await feedService.fetchAllFeeds();
+
+          return { feedCount: feeds.length };
+      });
+
+      res.json({ 
+          message: "Articles fetched successfully", 
+          feedsProcessed: result.feedCount 
+      });
+  } catch (error) {
+      console.error("Error fetching articles:", error);
+      res.status(500).json({ error: error.message });
+  }
 });
 
-// Test route to check env variables
-app.get("/test-env", (req, res) => {
-  res.json({
-    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
-    keyLength: process.env.OPENAI_API_KEY?.length,
-  });
-});
 
 app.get("/preview-newsletter", async (req, res) => {
   try {
+    console.log("Preview newsletter route hit");
+
     // Get articles from all feeds, sorted by publish date
     const articles = await Article.find()
       .populate("feedId")
-      .sort({ publishDate: -1 }) // Most recent first
-      .limit(10) // Adjust this number as needed
+      .sort({ publishDate: -1 })
+      .limit(10)
       .exec();
 
     console.log(`Found ${articles.length} articles from all feeds`);
-    console.log("Feeds represented:", [
-      ...new Set(articles.map((a) => a.feedId.name)),
-    ]);
+
+    if (articles.length === 0) {
+      return res.send(`
+        <html>
+          <body>
+            <h1>No Articles Found</h1>
+            <p>The database is connected but no articles were found. Please make sure:</p>
+            <ol>
+              <li>Feeds have been added</li>
+              <li>Articles have been fetched from the feeds</li>
+            </ol>
+            <p>Database status:</p>
+            <pre>MongoDB State: ${mongoose.connection.readyState}</pre>
+          </body>
+        </html>
+      `);
+    }
 
     let content = await aiService.generateNewsletterContent(articles);
 
@@ -269,13 +278,19 @@ app.get("/preview-newsletter", async (req, res) => {
   } catch (error) {
     console.error("Newsletter preview error:", error);
     res.status(500).send(`
-            <html>
-                <body>
-                    <h1>Error Generating Newsletter</h1>
-                    <p>${error.message}</p>
-                </body>
-            </html>
-        `);
+      <html>
+        <body>
+          <h1>Error Generating Newsletter</h1>
+          <p>Error: ${error.message}</p>
+          <p>Stack: ${
+            process.env.NODE_ENV === "development"
+              ? error.stack
+              : "Hidden in production"
+          }</p>
+          <p>MongoDB State: ${mongoose.connection.readyState}</p>
+        </body>
+      </html>
+    `);
   }
 });
 

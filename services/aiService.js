@@ -2,18 +2,18 @@ const OpenAI = require("openai");
 require("dotenv").config();
 
 class AIService {
-    constructor() {
-        // Get API key from environment
-        const apiKey = process.env.OPENAI_API_KEY;
-        
-        if (!apiKey) {
-            throw new Error('OpenAI API key is not configured');
-        }
+  constructor() {
+    // Get API key from environment
+    const apiKey = process.env.OPENAI_API_KEY;
 
-        this.openai = new OpenAI({
-            apiKey: apiKey
-        });
+    if (!apiKey) {
+      throw new Error("OpenAI API key is not configured");
     }
+
+    this.openai = new OpenAI({
+      apiKey: apiKey,
+    });
+  }
 
   async generateNewsletterContent(articles) {
     try {
@@ -46,29 +46,34 @@ class AIService {
   createPrompt(articles) {
     // Group articles by feed
     const feedGroups = {};
-    articles.forEach(article => {
-        const feedName = article.feedId.name;
-        if (!feedGroups[feedName]) {
-            feedGroups[feedName] = [];
-        }
-        feedGroups[feedName].push(article);
+    articles.forEach((article) => {
+      const feedName = article.feedId.name;
+      if (!feedGroups[feedName]) {
+        feedGroups[feedName] = [];
+      }
+      feedGroups[feedName].push(article);
     });
 
     // Create prompt with organized content
     const articleTexts = Object.entries(feedGroups)
-        .map(([feedName, feedArticles]) => {
-            return `
+      .map(([feedName, feedArticles]) => {
+        return `
         Source: ${feedName}
-        ${feedArticles.map(article => `
+        ${feedArticles
+          .map(
+            (article) => `
         - Title: ${article.title}
         URL: ${article.url}
         Published: ${new Date(article.publishDate).toLocaleString()}
-        Content: ${article.content?.substring(0, 300) || 'No content available'}
-        `).join('\n')}
+        Content: ${article.content?.substring(0, 300) || "No content available"}
+        `
+          )
+          .join("\n")}
         ---`;
-                }).join('\n');
+      })
+      .join("\n");
 
-            return `
+    return `
         Please create a comprehensive newsletter combining news from multiple RSS feeds.
 
         Available Sources and Articles:
@@ -89,7 +94,7 @@ class AIService {
         5. Clear attribution to sources
 
         Use appropriate HTML tags (h1, h2, h3, p, ul, li, a) for formatting, but do not include any styling or HTML boilerplate.`;
-        }
+  }
 }
 
 const aiService = new AIService();
