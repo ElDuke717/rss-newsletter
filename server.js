@@ -179,8 +179,8 @@ app.get("/preview-newsletter", async (req, res) => {
     }
 
     // Add timeout to OpenAI call
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('OpenAI API timeout')), 25000)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("OpenAI API timeout")), 25000)
     );
 
     let content = await Promise.race([contentPromise, timeoutPromise]);
@@ -282,18 +282,23 @@ app.get("/preview-newsletter", async (req, res) => {
     res.send(styledNewsletter);
   } catch (error) {
     console.error("Newsletter preview error:", error);
-    res.status(error.message === 'OpenAI API timeout' ? 503 : 500).send(`
+    res.status(error.message === "OpenAI API timeout" ? 503 : 500).send(`
       <html>
         <body>
           <h1>Error Generating Newsletter</h1>
           <p>Error: ${error.message}</p>
-          ${process.env.NODE_ENV === 'development' ? `<p>Stack: ${error.stack}</p>` : ''}
+          ${
+            process.env.NODE_ENV === "development"
+              ? `<p>Stack: ${error.stack}</p>`
+              : ""
+          }
           <p>MongoDB State: ${mongoose.connection.readyState}</p>
           <p>Try refreshing the page or <a href="/api/diagnostic">check system status</a>.</p>
         </body>
       </html>
     `);
-    } });
+  }
+});
 
 // Diagnostic route
 app.get("/api/diagnostic", async (req, res) => {
@@ -401,6 +406,63 @@ if (process.env.NODE_ENV !== "production") {
     console.log(`🚀 Server running on port ${PORT}`);
   });
 }
+
+// Test newsletter generation without HTML rendering
+app.get("/api/test-newsletter", async (req, res) => {
+  try {
+    const articles = await Article.find()
+      .populate("feedId")
+      .sort({ publishDate: -1 })
+      .limit(5)
+      .lean();
+
+    console.log(`Found ${articles.length} articles for test`);
+
+    const content = await aiService.generateNewsletterContent(articles);
+
+    res.json({
+      success: true,
+      articleCount: articles.length,
+      contentPreview: content.substring(0, 200) + "...",
+      sources: [...new Set(articles.map((a) => a.feedId.name))],
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Newsletter test error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Quick status check for all components
+app.get("/api/newsletter-status", async (req, res) => {
+  try {
+    const status = {
+      database: {
+        connected: mongoose.connection.readyState === 1,
+        feeds: await Feed.countDocuments(),
+        articles: await Article.countDocuments(),
+      },
+      openai: {
+        configured: !!process.env.OPENAI_API_KEY,
+        keyLength: process.env.OPENAI_API_KEY?.length,
+      },
+      recentArticles: await Article.find()
+        .sort({ publishDate: -1 })
+        .limit(3)
+        .select("title publishDate")
+        .lean(),
+    };
+
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
 
 // Export the Express API
 module.exports = app;
