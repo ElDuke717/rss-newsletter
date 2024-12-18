@@ -23,82 +23,82 @@ let cachedDb = null;
 
 // Connection wrapper function
 const withDB = async (callback) => {
-    try {
-        if (!cachedDb) {
-            cachedDb = await mongoose.connect(process.env.MONGODB_URI, {
-                useNewUrlParser: true,
-                useUnifiedTopology: true,
-                bufferCommands: true, // Changed from false to true
-                serverSelectionTimeoutMS: 5000,
-            });
-            console.log("New database connection established");
-        }
-        return await callback();
-    } catch (error) {
-        console.error("Database operation error:", error);
-        throw error;
+  try {
+    if (!cachedDb) {
+      cachedDb = await mongoose.connect(process.env.MONGODB_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        bufferCommands: true, // Changed from false to true
+        serverSelectionTimeoutMS: 5000,
+      });
+      console.log("New database connection established");
     }
+    return await callback();
+  } catch (error) {
+    console.error("Database operation error:", error);
+    throw error;
+  }
 };
 
 // Add connection status endpoint
 app.get("/api/connection-test", async (req, res) => {
-    try {
-        await withDB(async () => {
-            const connectionState = mongoose.connection.readyState;
-            const stateMap = {
-                0: "disconnected",
-                1: "connected",
-                2: "connecting",
-                3: "disconnecting",
-            };
+  try {
+    await withDB(async () => {
+      const connectionState = mongoose.connection.readyState;
+      const stateMap = {
+        0: "disconnected",
+        1: "connected",
+        2: "connecting",
+        3: "disconnecting",
+      };
 
-            return {
-                status: "success",
-                connectionState: stateMap[connectionState],
-                numericState: connectionState,
-                mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
-                databaseName: mongoose.connection.name || "not connected",
-            };
-        });
-        
-        res.json(await withDB(() => ({ message: "Connection test successful" })));
-    } catch (error) {
-        res.status(500).json({
-            status: "error",
-            error: error.message,
-            stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
-        });
-    }
+      return {
+        status: "success",
+        connectionState: stateMap[connectionState],
+        numericState: connectionState,
+        mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
+        databaseName: mongoose.connection.name || "not connected",
+      };
+    });
+
+    res.json(await withDB(() => ({ message: "Connection test successful" })));
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
 });
 
 // System status endpoint
 app.get("/api/system-status", async (req, res) => {
   try {
-      const status = await withDB(async () => ({
-          mongoConnected: mongoose.connection.readyState === 1,
-          mongoState: mongoose.connection.readyState,
-          environment: process.env.NODE_ENV,
-          hasOpenAI: !!process.env.OPENAI_API_KEY,
-          hasMongoDB: !!process.env.MONGODB_URI,
-          mongoQueryTest: await Feed.findOne().select("_id") ? true : false
-      }));
-      
-      res.json(status);
+    const status = await withDB(async () => ({
+      mongoConnected: mongoose.connection.readyState === 1,
+      mongoState: mongoose.connection.readyState,
+      environment: process.env.NODE_ENV,
+      hasOpenAI: !!process.env.OPENAI_API_KEY,
+      hasMongoDB: !!process.env.MONGODB_URI,
+      mongoQueryTest: (await Feed.findOne().select("_id")) ? true : false,
+    }));
+
+    res.json(status);
   } catch (error) {
-      res.status(500).json({
-          error: "System status check failed",
-          details: error.message
-      });
+    res.status(500).json({
+      error: "System status check failed",
+      details: error.message,
+    });
   }
 });
 
 // Test route for configuration
 app.get("/test-config", (req, res) => {
   res.json({
-      port: process.env.PORT,
-      hasOpenAI: !!process.env.OPENAI_API_KEY,
-      hasMongoDB: !!process.env.MONGODB_URI,
-      openAIKeyLength: process.env.OPENAI_API_KEY?.length,
+    port: process.env.PORT,
+    hasOpenAI: !!process.env.OPENAI_API_KEY,
+    hasMongoDB: !!process.env.MONGODB_URI,
+    openAIKeyLength: process.env.OPENAI_API_KEY?.length,
   });
 });
 
@@ -109,44 +109,43 @@ app.use("/api/subscribers", subscriberRoutes);
 // Test AI route
 app.post("/test-ai", async (req, res) => {
   try {
-      const articles = await withDB(async () => {
-          return Article.find()
-              .sort({ publishDate: -1 })
-              .limit(5)
-              .populate("feedId");
-      });
+    const articles = await withDB(async () => {
+      return Article.find()
+        .sort({ publishDate: -1 })
+        .limit(5)
+        .populate("feedId");
+    });
 
-      const content = await aiService.generateNewsletterContent(articles);
-      res.json({ content });
+    const content = await aiService.generateNewsletterContent(articles);
+    res.json({ content });
   } catch (error) {
-      console.error("AI test error:", error);
-      res.status(500).json({ error: error.message });
+    console.error("AI test error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
 // Fetch articles route
 app.post("/api/fetch-articles", async (req, res) => {
   try {
-      const result = await withDB(async () => {
-          const feeds = await Feed.find();
-          console.log(`Found ${feeds.length} feeds to fetch`);
+    const result = await withDB(async () => {
+      const feeds = await Feed.find();
+      console.log(`Found ${feeds.length} feeds to fetch`);
 
-          const feedService = require('./services/feedService');
-          await feedService.fetchAllFeeds();
+      const feedService = require("./services/feedService");
+      await feedService.fetchAllFeeds();
 
-          return { feedCount: feeds.length };
-      });
+      return { feedCount: feeds.length };
+    });
 
-      res.json({ 
-          message: "Articles fetched successfully", 
-          feedsProcessed: result.feedCount 
-      });
+    res.json({
+      message: "Articles fetched successfully",
+      feedsProcessed: result.feedCount,
+    });
   } catch (error) {
-      console.error("Error fetching articles:", error);
-      res.status(500).json({ error: error.message });
+    console.error("Error fetching articles:", error);
+    res.status(500).json({ error: error.message });
   }
 });
-
 
 app.get("/preview-newsletter", async (req, res) => {
   try {
@@ -156,7 +155,8 @@ app.get("/preview-newsletter", async (req, res) => {
     const articles = await Article.find()
       .populate("feedId")
       .sort({ publishDate: -1 })
-      .limit(10)
+      .limit(5)
+      .lean()
       .exec();
 
     console.log(`Found ${articles.length} articles from all feeds`);
@@ -178,7 +178,12 @@ app.get("/preview-newsletter", async (req, res) => {
       `);
     }
 
-    let content = await aiService.generateNewsletterContent(articles);
+    // Add timeout to OpenAI call
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('OpenAI API timeout')), 25000)
+    );
+
+    let content = await Promise.race([contentPromise, timeoutPromise]);
 
     // Clean up markdown formatting
     content = content
@@ -202,7 +207,7 @@ app.get("/preview-newsletter", async (req, res) => {
                         margin: 0 auto;
                         padding: 20px;
                         background-color: #f5f5f5;
-                    }
+                    }l
                     
                     .newsletter-container {
                         background-color: white;
@@ -277,22 +282,18 @@ app.get("/preview-newsletter", async (req, res) => {
     res.send(styledNewsletter);
   } catch (error) {
     console.error("Newsletter preview error:", error);
-    res.status(500).send(`
+    res.status(error.message === 'OpenAI API timeout' ? 503 : 500).send(`
       <html>
         <body>
           <h1>Error Generating Newsletter</h1>
           <p>Error: ${error.message}</p>
-          <p>Stack: ${
-            process.env.NODE_ENV === "development"
-              ? error.stack
-              : "Hidden in production"
-          }</p>
+          ${process.env.NODE_ENV === 'development' ? `<p>Stack: ${error.stack}</p>` : ''}
           <p>MongoDB State: ${mongoose.connection.readyState}</p>
+          <p>Try refreshing the page or <a href="/api/diagnostic">check system status</a>.</p>
         </body>
       </html>
     `);
-  }
-});
+    } });
 
 // Diagnostic route
 app.get("/api/diagnostic", async (req, res) => {
@@ -365,31 +366,31 @@ app.get("/api/system-status", async (req, res) => {
   }
 });
 
-app.get('/api/feed-status', async (req, res) => {
+app.get("/api/feed-status", async (req, res) => {
   try {
-      const feeds = await Feed.find().lean();
-      const articles = await Article.find().lean();
-      
-      const status = {
-          feedCount: feeds.length,
-          feeds: feeds.map(f => ({
-              name: f.name,
-              url: f.url,
-              lastFetched: f.lastFetched
-          })),
-          articleCount: articles.length,
-          recentArticles: articles
-              .sort((a, b) => new Date(b.publishDate) - new Date(a.publishDate))
-              .slice(0, 5)
-              .map(a => ({
-                  title: a.title,
-                  publishDate: a.publishDate
-              }))
-      };
-      
-      res.json(status);
+    const feeds = await Feed.find().lean();
+    const articles = await Article.find().lean();
+
+    const status = {
+      feedCount: feeds.length,
+      feeds: feeds.map((f) => ({
+        name: f.name,
+        url: f.url,
+        lastFetched: f.lastFetched,
+      })),
+      articleCount: articles.length,
+      recentArticles: articles
+        .sort((a, b) => new Date(b.publishDate) - new Date(a.publishDate))
+        .slice(0, 5)
+        .map((a) => ({
+          title: a.title,
+          publishDate: a.publishDate,
+        })),
+    };
+
+    res.json(status);
   } catch (error) {
-      res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 

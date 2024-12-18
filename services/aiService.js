@@ -33,13 +33,14 @@ class AIService {
           },
         ],
         temperature: 0.7,
-        max_tokens: 1500,
+        max_tokens: 1000,
+        timeout: 25000, // 25 second timeout
       });
 
       return completion.choices[0].message.content;
     } catch (error) {
       console.error("AI Service Error:", error);
-      throw new Error("Failed to generate newsletter content");
+      throw new Error("Failed to generate newsletter content", error.message);
     }
   }
 

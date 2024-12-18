@@ -20,12 +20,14 @@
         "dest": "server.js"
       },
       {
-        "src": "/test-(.+)",
-        "dest": "server.js"
-      },
-      {
         "src": "/(.*)",
         "dest": "public/$1"
       }
-    ]
+    ],
+    "functions": {
+      "server.js": {
+        "memory": 1024,
+        "maxDuration": 60
+      }
+    }
   }
