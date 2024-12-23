@@ -464,5 +464,53 @@ app.get("/api/newsletter-status", async (req, res) => {
   }
 });
 
+// Add this to server.js temporarily
+app.get('/api/test-ses-credentials', async (req, res) => {
+  try {
+      const ses = new SESClient({
+          region: process.env.AWS_REGION,
+          credentials: {
+              accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+          }
+      });
+
+      // Just check if we can list verified emails
+      const command = new ListIdentitiesCommand({});
+      const response = await ses.send(command);
+      
+      res.json({
+          success: true,
+          message: 'SES credentials working',
+          identities: response.Identities
+      });
+  } catch (error) {
+      res.status(500).json({
+          success: false,
+          error: error.message
+      });
+  }
+});
+
+// Add to server.js
+app.get('/api/env-check', (req, res) => {
+  const envStatus = {
+      aws: {
+          hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+          hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
+          hasRegion: !!process.env.AWS_REGION,
+          hasEmailFrom: !!process.env.EMAIL_FROM
+      },
+      mongodb: {
+          hasUri: !!process.env.MONGODB_URI
+      },
+      openai: {
+          hasKey: !!process.env.OPENAI_API_KEY
+      }
+  };
+  
+  res.json(envStatus);
+});
+
 // Export the Express API
 module.exports = app;

@@ -26,5 +26,11 @@
         "src": "/(.*)",
         "dest": "public/$1"
       }
+    ],
+    "crons": [
+    {
+      "path": "/api/trigger-newsletter",
+      "schedule": "0 6 * * *"
+    }
     ]
   }
