@@ -18,50 +18,79 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// Create cached connection variable
-let cachedDb = null;
-
-// Connection wrapper function
-const withDB = async (callback) => {
+// After your imports and before routes
+const connectToMongoDB = async () => {
   try {
-    if (!cachedDb) {
-      cachedDb = await mongoose.connect(process.env.MONGODB_URI, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-        bufferCommands: true, // Changed from false to true
-        serverSelectionTimeoutMS: 5000,
-      });
-      console.log("New database connection established");
+    if (mongoose.connection.readyState === 1) {
+      console.log("MongoDB already connected");
+      return;
     }
-    return await callback();
+
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+    });
+
+    console.log("✓ MongoDB connected successfully");
   } catch (error) {
-    console.error("Database operation error:", error);
+    console.error("MongoDB connection error:", error);
     throw error;
+  }
+};
+
+// Initialize server with database connection
+const initializeServer = async () => {
+  try {
+    await connectToMongoDB();
+
+    if (process.env.NODE_ENV !== "production") {
+      const PORT = process.env.PORT || 4000;
+      app.listen(PORT, () => {
+        console.log(`🚀 Server running on port ${PORT}`);
+      });
+    }
+  } catch (error) {
+    console.error("Failed to initialize server:", error);
+    process.exit(1);
+  }
+};
+
+// Call initialize function
+initializeServer();
+
+const ensureDbConnected = async (req, res, next) => {
+  try {
+    await connectToMongoDB();
+    next();
+  } catch (error) {
+    res.status(500).json({
+      error: "Database connection failed",
+      details: error.message,
+    });
   }
 };
 
 // Add connection status endpoint
 app.get("/api/connection-test", async (req, res) => {
   try {
-    await withDB(async () => {
-      const connectionState = mongoose.connection.readyState;
-      const stateMap = {
-        0: "disconnected",
-        1: "connected",
-        2: "connecting",
-        3: "disconnecting",
-      };
+    await connectToMongoDB();
+    const connectionState = mongoose.connection.readyState;
+    const stateMap = {
+      0: "disconnected",
+      1: "connected",
+      2: "connecting",
+      3: "disconnecting",
+    };
 
-      return {
-        status: "success",
-        connectionState: stateMap[connectionState],
-        numericState: connectionState,
-        mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
-        databaseName: mongoose.connection.name || "not connected",
-      };
+    res.json({
+      status: "success",
+      connectionState: stateMap[connectionState],
+      numericState: connectionState,
+      mongodbUri: process.env.MONGODB_URI ? "URI is set" : "URI is missing",
+      databaseName: mongoose.connection.name || "not connected",
     });
-
-    res.json(await withDB(() => ({ message: "Connection test successful" })));
   } catch (error) {
     res.status(500).json({
       status: "error",
@@ -74,14 +103,15 @@ app.get("/api/connection-test", async (req, res) => {
 // System status endpoint
 app.get("/api/system-status", async (req, res) => {
   try {
-    const status = await withDB(async () => ({
+    await connectToMongoDB();
+    const status = {
       mongoConnected: mongoose.connection.readyState === 1,
       mongoState: mongoose.connection.readyState,
       environment: process.env.NODE_ENV,
       hasOpenAI: !!process.env.OPENAI_API_KEY,
       hasMongoDB: !!process.env.MONGODB_URI,
       mongoQueryTest: (await Feed.findOne().select("_id")) ? true : false,
-    }));
+    };
 
     res.json(status);
   } catch (error) {
@@ -109,12 +139,11 @@ app.use("/api/subscribers", subscriberRoutes);
 // Test AI route
 app.post("/test-ai", async (req, res) => {
   try {
-    const articles = await withDB(async () => {
-      return Article.find()
-        .sort({ publishDate: -1 })
-        .limit(5)
-        .populate("feedId");
-    });
+    await connectToMongoDB();
+    const articles = await Article.find()
+      .sort({ publishDate: -1 })
+      .limit(5)
+      .populate("feedId");
 
     const content = await aiService.generateNewsletterContent(articles);
     res.json({ content });
@@ -127,19 +156,16 @@ app.post("/test-ai", async (req, res) => {
 // Fetch articles route
 app.post("/api/fetch-articles", async (req, res) => {
   try {
-    const result = await withDB(async () => {
-      const feeds = await Feed.find();
-      console.log(`Found ${feeds.length} feeds to fetch`);
+    await connectToMongoDB();
+    const feeds = await Feed.find();
+    console.log(`Found ${feeds.length} feeds to fetch`);
 
-      const feedService = require("./services/feedService");
-      await feedService.fetchAllFeeds();
-
-      return { feedCount: feeds.length };
-    });
+    const feedService = require("./services/feedService");
+    await feedService.fetchAllFeeds();
 
     res.json({
       message: "Articles fetched successfully",
-      feedsProcessed: result.feedCount,
+      feedsProcessed: feeds.length,
     });
   } catch (error) {
     console.error("Error fetching articles:", error);
@@ -399,13 +425,13 @@ app.get("/api/feed-status", async (req, res) => {
   }
 });
 
-// Development server
-if (process.env.NODE_ENV !== "production") {
-  const PORT = process.env.PORT || 4000;
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-  });
-}
+// // Development server
+// if (process.env.NODE_ENV !== "production") {
+//   const PORT = process.env.PORT || 4000;
+//   app.listen(PORT, () => {
+//     console.log(`🚀 Server running on port ${PORT}`);
+//   });
+// }
 
 // Test newsletter generation without HTML rendering
 app.get("/api/test-newsletter", async (req, res) => {
@@ -464,52 +490,202 @@ app.get("/api/newsletter-status", async (req, res) => {
   }
 });
 
-// Add this to server.js temporarily
-app.get('/api/test-ses-credentials', async (req, res) => {
+app.post("/api/test-newsletter-generation", async (req, res) => {
   try {
-      const ses = new SESClient({
-          region: process.env.AWS_REGION,
-          credentials: {
-              accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-          }
-      });
+    const testSubscriber = { email: process.env.EMAIL_FROM };
+    const testArticles = [
+      {
+        title: "Test Article 1",
+        description: "This is a test article",
+        content: "This is the full content of the test article.",
+        link: "https://example.com",
+        publishDate: new Date(),
+        feedId: {
+          name: "Test Feed",
+        },
+      },
+    ];
 
-      // Just check if we can list verified emails
-      const command = new ListIdentitiesCommand({});
-      const response = await ses.send(command);
-      
-      res.json({
-          success: true,
-          message: 'SES credentials working',
-          identities: response.Identities
-      });
+    const emailService = require("./services/emailService");
+    const result = await emailService.sendNewsletter(
+      [testSubscriber],
+      testArticles
+    );
+
+    res.json({
+      success: true,
+      result,
+    });
   } catch (error) {
-      res.status(500).json({
-          success: false,
-          error: error.message
-      });
+    console.error("Newsletter test failed:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Add this to server.js temporarily
+app.get("/api/test-ses-credentials", async (req, res) => {
+  try {
+    const ses = new SESClient({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+      },
+    });
+
+    // Just check if we can list verified emails
+    const command = new ListIdentitiesCommand({});
+    const response = await ses.send(command);
+
+    res.json({
+      success: true,
+      message: "SES credentials working",
+      identities: response.Identities,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
 // Add to server.js
-app.get('/api/env-check', (req, res) => {
+app.get("/api/env-check", (req, res) => {
   const envStatus = {
-      aws: {
-          hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
-          hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
-          hasRegion: !!process.env.AWS_REGION,
-          hasEmailFrom: !!process.env.EMAIL_FROM
-      },
-      mongodb: {
-          hasUri: !!process.env.MONGODB_URI
-      },
-      openai: {
-          hasKey: !!process.env.OPENAI_API_KEY
-      }
+    aws: {
+      hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+      hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
+      hasRegion: !!process.env.AWS_REGION,
+      hasEmailFrom: !!process.env.EMAIL_FROM,
+    },
+    mongodb: {
+      hasUri: !!process.env.MONGODB_URI,
+    },
+    openai: {
+      hasKey: !!process.env.OPENAI_API_KEY,
+    },
   };
-  
+
   res.json(envStatus);
+});
+
+app.post("/api/test-email", async (req, res) => {
+  try {
+    const testSubscriber = { email: process.env.TEST_EMAIL };
+    const testArticles = [
+      {
+        title: "Test Article",
+        description: "Test Description",
+        link: "https://example.com",
+        publishDate: new Date(),
+      },
+    ];
+
+    await emailService.sendNewsletter([testSubscriber], testArticles);
+    res.json({ success: true, message: "Test email sent" });
+  } catch (error) {
+    console.error("Test email error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/test-ses", async (req, res) => {
+  try {
+    const emailService = require("./services/emailService");
+    const result = await emailService.testConnection();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/test-template", async (req, res) => {
+  try {
+    const emailService = require("./services/emailService");
+    const result = await emailService.testTemplate();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/test-full-newsletter", ensureDbConnected, async (req, res) => {
+  try {
+    console.log("Starting full newsletter test with AI content...");
+
+    // Get recent articles from database
+    const articles = await Article.find()
+      .populate("feedId")
+      .sort({ publishDate: -1 })
+      .limit(10)
+      .lean();
+
+    console.log(`Found ${articles.length} articles`);
+
+    if (articles.length === 0) {
+      throw new Error("No articles found in database");
+    }
+
+    // Generate AI content
+    const aiService = require("./services/aiService");
+    console.log("Generating AI content...");
+    const content = await aiService.generateNewsletterContent(articles);
+
+    // Send newsletter
+    const emailService = require("./services/emailService");
+    const testSubscriber = { email: process.env.EMAIL_FROM };
+
+    console.log("Sending newsletter...");
+    const result = await emailService.sendNewsletter(
+      [testSubscriber],
+      articles
+    );
+
+    res.json({
+      success: true,
+      articleCount: articles.length,
+      result,
+    });
+  } catch (error) {
+    console.error("Full newsletter test failed:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Test if the database is connected
+app.get("/api/test-db", ensureDbConnected, async (req, res) => {
+  try {
+    const articleCount = await Article.countDocuments();
+    const feedCount = await Feed.countDocuments();
+
+    res.json({
+      success: true,
+      connected: mongoose.connection.readyState === 1,
+      articleCount,
+      feedCount,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 });
 
 // Export the Express API
